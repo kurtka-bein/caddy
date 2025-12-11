@@ -15,6 +15,7 @@
 package caddyhttp
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -27,6 +28,11 @@ import (
 // parameters which customize the handling of HTTP requests
 // in a highly flexible and performant manner.
 type Route struct {
+	// ID is an optional unique identifier for this route,
+	// primarily used for metrics collection and debugging.
+	// This corresponds to the @id field in the JSON config.
+	ID string `json:"@id,omitempty"`
+
 	// Group is an optional name for a group to which this
 	// route belongs. Grouping a route makes it mutually
 	// exclusive with others in its group; if a route belongs
@@ -266,6 +272,13 @@ func wrapRoute(route Route) Middleware {
 				return nextCopy.ServeHTTP(rw, req)
 			}
 
+			// add route ID to context if present
+			if route.ID != "" {
+				ctx := req.Context()
+				ctx = context.WithValue(ctx, RouteIDCtxKey, route.ID)
+				req = req.WithContext(ctx)
+			}
+
 			// if route is part of a group, ensure only the
 			// first matching route in the group is applied
 			if route.Group != "" {
@@ -449,4 +462,8 @@ func (ms MatcherSets) String() string {
 	return result + " ]"
 }
 
-var routeGroupCtxKey = caddy.CtxKey("route_group")
+var (
+	routeGroupCtxKey = caddy.CtxKey("route_group")
+	// RouteIDCtxKey is the context key for the current route's ID
+	RouteIDCtxKey = caddy.CtxKey("route_id")
+)

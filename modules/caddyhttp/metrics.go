@@ -25,11 +25,13 @@ import (
 //			"http": {
 //				"metrics": {
 //					"per_host": true,
-//					"allow_catch_all_hosts": false
+//					"allow_catch_all_hosts": false,
+//					"per_route": true
 //				},
 //				"servers": {
 //					"srv0": {
 //						"routes": [{
+//							"@id": "my-route-123",
 //							"match": [{"host": ["example.com", "www.example.com"]}],
 //							"handle": [{"handler": "static_response", "body": "Hello"}]
 //						}]
@@ -53,6 +55,14 @@ type Metrics struct {
 	// by default. Other hosts are aggregated under the "_other" label.
 	// See AllowCatchAllHosts to change this behavior.
 	PerHost bool `json:"per_host,omitempty"`
+
+	// Enable per-route metrics. When enabled, metrics will include
+	// a "route_id" label with the route's @id value (if present).
+	// Routes without an @id will use an empty string.
+	//
+	// This is useful for tracking metrics per specific route configuration,
+	// especially when managing routes dynamically via the Admin API.
+	PerRoute bool `json:"per_route,omitempty"`
 
 	// Allow metrics for catch-all hosts (hosts without explicit configuration).
 	// When false (default), only hosts explicitly configured via host matchers
@@ -90,6 +100,9 @@ func initHTTPMetrics(ctx caddy.Context, metrics *Metrics) {
 	if metrics.PerHost {
 		basicLabels = append(basicLabels, "host")
 	}
+	if metrics.PerRoute {
+		basicLabels = append(basicLabels, "route_id")
+	}
 	metrics.httpMetrics.requestInFlight = promauto.With(registry).NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: ns,
 		Subsystem: sub,
@@ -116,6 +129,9 @@ func initHTTPMetrics(ctx caddy.Context, metrics *Metrics) {
 	httpLabels := []string{"server", "handler", "code", "method"}
 	if metrics.PerHost {
 		httpLabels = append(httpLabels, "host")
+	}
+	if metrics.PerRoute {
+		httpLabels = append(httpLabels, "route_id")
 	}
 	metrics.httpMetrics.requestDuration = promauto.With(registry).NewHistogramVec(prometheus.HistogramOpts{
 		Namespace: ns,
@@ -249,6 +265,16 @@ func (h *metricsInstrumentedHandler) ServeHTTP(w http.ResponseWriter, r *http.Re
 			labels["host"] = "_other"
 			statusLabels["host"] = "_other"
 		}
+	}
+
+	if h.metrics.PerRoute {
+		// Extract route ID from context
+		routeID := ""
+		if id, ok := r.Context().Value(RouteIDCtxKey).(string); ok {
+			routeID = id
+		}
+		labels["route_id"] = routeID
+		statusLabels["route_id"] = routeID
 	}
 
 	inFlight := h.metrics.httpMetrics.requestInFlight.With(labels)
